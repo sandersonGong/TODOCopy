@@ -7,8 +7,11 @@
 //
 
 import UIKit
+import CoreData
 
 class ToDoListViewController: UITableViewController {
+    
+   
     
     //在应用运行期间，维持各种数据，采用键值对的形式支持多种数据类型
 //    let defaults = UserDefaults.standard
@@ -17,8 +20,13 @@ class ToDoListViewController: UITableViewController {
 
     //演示数组
     var itemArray = [Item]()
+    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
     
-    
+    var selectedCategory:Category? {
+        didSet {
+            loadItems()
+        }
+    }
     
     //视图载入函数
     override func viewDidLoad() {
@@ -26,8 +34,8 @@ class ToDoListViewController: UITableViewController {
         // Do any additional setup after loading the view, typically from a nib.
         //如果键值对存在，就把值赋值给items 并把items赋值给itemArray
         //创建常量储存应用的Document文件路径
-        
-        loadItems()
+        let request:NSFetchRequest<Item> = Item.fetchRequest()
+        loadItems(with: request)
 //        if let items = defaults.array(forKey: "ToDoListArray") as? [String] {
 //
 //        let  newItem = Item()
@@ -61,14 +69,16 @@ class ToDoListViewController: UITableViewController {
         
         //创建弹窗按钮及方法
         let action = UIAlertAction(title: "添加项目", style: .default){(action) in
-            let newItem = Item()
+            let newItem = Item(context: self.context)
             newItem.title = textField.text!
+            newItem.done = false
+            newItem.parentCategory = self.selectedCategory
             //在记事数组中添加事件内容
             self.itemArray.append(newItem)
             //创建PropertyListEncoder实例，通过其encode方法将items类型数组编码为plist格式
             self.saveItems()
             //设置用户储存的键值对信息，值 键
-//            self.defaults.set(self.itemArray, forKey: "ToDoListArray")
+//          self.defaults.set(self.itemArray, forKey: "ToDoListArray")
             //重新载入列表数据
             self.tableView.reloadData()
         }
@@ -110,40 +120,72 @@ class ToDoListViewController: UITableViewController {
   
         itemArray[indexPath.row].done = !itemArray[indexPath.row].done
 
+//        let title = itemArray[indexPath.row].title
+//        itemArray[indexPath.row].setValue(title! + " - (已完成)", forKey: "title")
+        saveItems()
+        
         tableView.beginUpdates()
         tableView.reloadRows(at: [indexPath], with: UITableView.RowAnimation.fade)
 
         tableView.endUpdates()
         tableView.deselectRow(at: indexPath, animated: true)
-     
-        self.saveItems()
-       
         
     }
     
     
     func saveItems() {
-        let encoder = PropertyListEncoder()
-        
+       
         do{
-            let data = try encoder.encode(itemArray)
-            try data.write(to: dataFilePath!)
+            try context.save()
         }catch{
             print("编码错误：\(error)")
         }
+        tableView.reloadData()
     }
     
-    func loadItems() {
-        if let data = try? Data(contentsOf: dataFilePath!) {
-            let decoder = PropertyListDecoder()
-            do{
-                itemArray = try decoder.decode([Item].self, from: data)
-            }catch{
-                print("解码item错误")
+    func loadItems(with request:NSFetchRequest<Item> = Item.fetchRequest(), predicate:NSPredicate? = nil) {
+        let request: NSFetchRequest<Item> = Item.fetchRequest()
+        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selectedCategory!.name!)
+
+        if let addtionalPredicate = predicate {
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate, addtionalPredicate])
+        }else{
+            request.predicate = categoryPredicate
+        }
+
+
+        do {
+            itemArray = try context.fetch(request)
+        }catch{
+            print("从context获取数据报错：\(error)")
+        }
+
+        tableView.reloadData()
+    }
+    
+        
+}
+
+
+extension ToDoListViewController: UISearchBarDelegate{
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        let request: NSFetchRequest<Item> = Item.fetchRequest()
+        request.predicate = NSPredicate(format: "title CONTAINS[c] %@", searchBar.text!)
+        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+        
+        loadItems(with: request)
+    }
+    
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if searchBar.text?.count == 0 {
+            loadItems()
+            DispatchQueue.main.async {
+                searchBar.resignFirstResponder()
             }
             
         }
     }
-    
 }
+
+
 
