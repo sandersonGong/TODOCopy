@@ -7,7 +7,8 @@
 //
 
 import UIKit
-import CoreData
+//import CoreData
+import RealmSwift
 
 class ToDoListViewController: UITableViewController {
     
@@ -16,11 +17,12 @@ class ToDoListViewController: UITableViewController {
     //在应用运行期间，维持各种数据，采用键值对的形式支持多种数据类型
 //    let defaults = UserDefaults.standard
     //在指定目录下创建一个储存数据的文件
+    let realm = try!Realm()
     let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Items.plist")
 
     //演示数组
-    var itemArray = [Item]()
-    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
+    var itemArray:Results<Item>?
+//    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
     
     var selectedCategory:Category? {
         didSet {
@@ -34,8 +36,8 @@ class ToDoListViewController: UITableViewController {
         // Do any additional setup after loading the view, typically from a nib.
         //如果键值对存在，就把值赋值给items 并把items赋值给itemArray
         //创建常量储存应用的Document文件路径
-        let request:NSFetchRequest<Item> = Item.fetchRequest()
-        loadItems(with: request)
+//        let request:NSFetchRequest<Item> = Item.fetchRequest()
+//        loadItems(with: request)
 //        if let items = defaults.array(forKey: "ToDoListArray") as? [String] {
 //
 //        let  newItem = Item()
@@ -69,17 +71,18 @@ class ToDoListViewController: UITableViewController {
         
         //创建弹窗按钮及方法
         let action = UIAlertAction(title: "添加项目", style: .default){(action) in
-            let newItem = Item(context: self.context)
-            newItem.title = textField.text!
-            newItem.done = false
-            newItem.parentCategory = self.selectedCategory
-            //在记事数组中添加事件内容
-            self.itemArray.append(newItem)
-            //创建PropertyListEncoder实例，通过其encode方法将items类型数组编码为plist格式
-            self.saveItems()
-            //设置用户储存的键值对信息，值 键
-//          self.defaults.set(self.itemArray, forKey: "ToDoListArray")
-            //重新载入列表数据
+            if let currentCategory = self.selectedCategory{
+                do {
+                    try self.realm.write {
+                        let newItem = Item()
+                        newItem.title = textField.text!
+                        newItem.dateCreated = Date()
+                        currentCategory.items.append(newItem)
+                    }
+                }catch {
+                    print("保存Item发生错误")
+                }
+            }
             self.tableView.reloadData()
         }
         
@@ -90,27 +93,39 @@ class ToDoListViewController: UITableViewController {
     //设置列表视图单元格显示内容
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "ToDoItemCell", for: indexPath)
-        cell.textLabel?.text = itemArray[indexPath.row].title
-        
-//        if itemArray[indexPath.row].done == false {
-//            cell.accessoryType = .none
-//        }else{
-//            cell.accessoryType = .checkmark
-//        }
-        
-        let item = itemArray[indexPath.row]
-        cell.accessoryType = item.done == true ? .checkmark : .none
+        if let item = itemArray?[indexPath.row] {
+            cell.textLabel?.text = item.title
+            cell.accessoryType = item.done == true ? .checkmark : .none
+        }else{
+            cell.textLabel?.text = "没有事项"
+        }
         
         return cell
     }
     
     //返回列表视图单元格个数
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return itemArray.count
+        return itemArray?.count ?? 1
     }
 
     //点击勾选或点击取消勾选，点击执行高亮动画
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        
+        if let item = itemArray?[indexPath.row] {
+            do {
+                try realm.write {
+                    item.done = !item.done
+                }
+            }catch {
+                print("保存完成状态失败")
+            }
+        }
+
+        tableView.beginUpdates()
+        tableView.reloadRows(at: [indexPath], with: UITableView.RowAnimation.fade)
+
+        tableView.endUpdates()
+        tableView.deselectRow(at: indexPath, animated: true)
         
 //        if itemArray[indexPath.row].done == false {
 //            itemArray[indexPath.row].done = true
@@ -118,48 +133,33 @@ class ToDoListViewController: UITableViewController {
 //             itemArray[indexPath.row].done = false
 //        }
   
-        itemArray[indexPath.row].done = !itemArray[indexPath.row].done
-
-//        let title = itemArray[indexPath.row].title
-//        itemArray[indexPath.row].setValue(title! + " - (已完成)", forKey: "title")
-        saveItems()
-        
-        tableView.beginUpdates()
-        tableView.reloadRows(at: [indexPath], with: UITableView.RowAnimation.fade)
-
-        tableView.endUpdates()
-        tableView.deselectRow(at: indexPath, animated: true)
+//        itemArray[indexPath.row].done = !itemArray[indexPath.row].done
+//
+////        let title = itemArray[indexPath.row].title
+////        itemArray[indexPath.row].setValue(title! + " - (已完成)", forKey: "title")
+//        saveItems()
+//
+//        tableView.beginUpdates()
+//        tableView.reloadRows(at: [indexPath], with: UITableView.RowAnimation.fade)
+//
+//        tableView.endUpdates()
+//        tableView.deselectRow(at: indexPath, animated: true)
         
     }
     
     
     func saveItems() {
        
-        do{
-            try context.save()
-        }catch{
-            print("编码错误：\(error)")
-        }
-        tableView.reloadData()
+//        do{
+//            try context.save()
+//        }catch{
+//            print("编码错误：\(error)")
+//        }
+//        tableView.reloadData()
     }
     
-    func loadItems(with request:NSFetchRequest<Item> = Item.fetchRequest(), predicate:NSPredicate? = nil) {
-        let request: NSFetchRequest<Item> = Item.fetchRequest()
-        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selectedCategory!.name!)
-
-        if let addtionalPredicate = predicate {
-            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate, addtionalPredicate])
-        }else{
-            request.predicate = categoryPredicate
-        }
-
-
-        do {
-            itemArray = try context.fetch(request)
-        }catch{
-            print("从context获取数据报错：\(error)")
-        }
-
+    func loadItems() {
+        itemArray = selectedCategory?.items.sorted(byKeyPath: "title", ascending: true)
         tableView.reloadData()
     }
     
@@ -169,11 +169,12 @@ class ToDoListViewController: UITableViewController {
 
 extension ToDoListViewController: UISearchBarDelegate{
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-        let request: NSFetchRequest<Item> = Item.fetchRequest()
-        request.predicate = NSPredicate(format: "title CONTAINS[c] %@", searchBar.text!)
-        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
-        
-        loadItems(with: request)
+        itemArray = itemArray?.filter("title CONTAINS[c] %@", searchBar.text!).sorted(byKeyPath: "dateCreated", ascending: false)
+//        let request: NSFetchRequest<Item> = Item.fetchRequest()
+//        request.predicate = NSPredicate(format: "title CONTAINS[c] %@", searchBar.text!)
+//        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+//
+//        loadItems(with: request)
     }
     
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
